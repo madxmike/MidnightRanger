@@ -4,9 +4,15 @@ project(MidnightRanger VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIGURATION>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIGURATION>")
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-add_subdirectory(vendored/SDL EXCLUDE_FROM_ALL)
+include(fetch_sdl)
+include(fetch_sdl_shadercross)
 
 add_executable(game main.cpp)
+target_link_libraries(game PUBLIC SDL3::SDL3)
+target_link_libraries(game PUBLIC SDL3_shadercross::SDL3_shadercross)
 
-target_link_libraries(game PRIVATE SDL3::SDL3)
+add_custom_command(TARGET game POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/Content $<TARGET_FILE_DIR:game>/Content
+)

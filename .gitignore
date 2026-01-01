@@ -41,7 +41,10 @@
 *.dwo
 
 # Build
-build/*
+build/
 
 # VSCode
-.vscode/*
+.vscode
+
+# Clangd
+.cache/
