@@ -3,8 +3,8 @@
 #include "SDL3/SDL_surface.h"
 #include "SDL3_shadercross/SDL_shadercross.h"
 #include "SDL3_image/SDL_image.h"
-#include "pipelines.h"
 #include "draw.h"
+#include "pipelines.h"
 #include "SDL3/SDL_gpu.h"
 #include "SDL3/SDL_init.h"
 #include "SDL3/SDL_log.h"
@@ -13,40 +13,57 @@
 #include <ostream>
 #include <string>
 
+constexpr int WindowWidth = 800;
+constexpr int WindowHeight = 600;
+
+struct SDL_Context {
+    SDL_Window* window;
+    SDL_GPUDevice* device;
+};
+
+SDL_Context initSDL() {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+      SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not init sdl: %s\n",
+                   SDL_GetError());
+      return {};
+    }
+
+    if (!SDL_ShaderCross_Init()) {
+      SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not init shadercross: %s\n",
+                   SDL_GetError());
+      return {};
+    }
+
+    SDL_Window *window = SDL_CreateWindow("Test", WindowWidth, WindowHeight, SDL_WINDOW_RESIZABLE);
+    if (window == nullptr) {
+      SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not create window: %s\n",
+                   SDL_GetError());
+      return {};
+    }
+
+    SDL_GPUDevice *device =
+        SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr);
+    if (device == nullptr) {
+      SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not create gpu device: %s\n",
+                   SDL_GetError());
+      return {};
+    }
+
+    if (!SDL_ClaimWindowForGPUDevice(device, window)) {
+      SDL_LogError(SDL_LOG_CATEGORY_ERROR,
+                   "Could not claim window for gpu device: %s\n", SDL_GetError());
+      return {};
+    }
+
+    return {
+        .window = window,
+        .device = device,
+    };
+}
+
 int main() {
-  if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS  )) {
-    SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not init sdl: %s\n",
-                 SDL_GetError());
-    return -1;
-  }
 
-  if (!SDL_ShaderCross_Init()) {
-    SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not init shadercross: %s\n",
-                 SDL_GetError());
-    return -1;
-  }
-
-  SDL_Window *window = SDL_CreateWindow("Test", 800, 600, SDL_WINDOW_RESIZABLE);
-  if (window == nullptr) {
-    SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not create window: %s\n",
-                 SDL_GetError());
-    return -1;
-  }
-
-  SDL_GPUDevice *device =
-      SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, true, nullptr);
-  if (device == nullptr) {
-    SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not create gpu device: %s\n",
-                 SDL_GetError());
-    return -1;
-  }
-
-  if (!SDL_ClaimWindowForGPUDevice(device, window)) {
-    SDL_LogError(SDL_LOG_CATEGORY_ERROR,
-                 "Could not claim window for gpu device: %s\n", SDL_GetError());
-    return -1;
-  }
-
+    SDL_Context sdlContext = initSDL();
 
   const std::string basePath = SDL_GetBasePath();
   const std::string filePath = basePath + "Content/Images/" + "test-sprite.png";
@@ -71,26 +88,26 @@ int main() {
       .num_levels = 1,
   };
 
-  SDL_GPUTexture *texture = SDL_CreateGPUTexture(device, &textureCreateInfo);
+  SDL_GPUTexture *texture = SDL_CreateGPUTexture(sdlContext.device, &textureCreateInfo);
 
   SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo = {
       .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
       .size = textureWidth * textureHeight * 4,
   };
 
-  SDL_GPUTransferBuffer *textureTransferBuffer = SDL_CreateGPUTransferBuffer(device, &transferBufferCreateInfo);
+  SDL_GPUTransferBuffer *textureTransferBuffer = SDL_CreateGPUTransferBuffer(sdlContext.device, &transferBufferCreateInfo);
 
   {
-      SDL_GPUCommandBuffer *commandBuffer = SDL_AcquireGPUCommandBuffer(device);
+      SDL_GPUCommandBuffer *commandBuffer = SDL_AcquireGPUCommandBuffer(sdlContext.device);
       if (commandBuffer == nullptr) {
           SDL_LogError(SDL_LOG_CATEGORY_ERROR,
                       "Could not acquire copy pass command buffer: %s\n", SDL_GetError());
           return -1;
       }
 
-      void *buffer = SDL_MapGPUTransferBuffer(device, textureTransferBuffer, false);
+      void *buffer = SDL_MapGPUTransferBuffer(sdlContext.device, textureTransferBuffer, false);
       SDL_memcpy(buffer, surface->pixels, textureWidth * textureHeight * 4);
-      SDL_UnmapGPUTransferBuffer(device, textureTransferBuffer);
+      SDL_UnmapGPUTransferBuffer(sdlContext.device, textureTransferBuffer);
 
       SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
       if (copyPass == nullptr) {
@@ -113,7 +130,7 @@ int main() {
       SDL_EndGPUCopyPass(copyPass);
       SDL_SubmitGPUCommandBuffer(commandBuffer);
 
-      SDL_ReleaseGPUTransferBuffer(device, textureTransferBuffer);
+      SDL_ReleaseGPUTransferBuffer(sdlContext.device, textureTransferBuffer);
       SDL_DestroySurface(surface);
   }
 
@@ -125,9 +142,9 @@ int main() {
       .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
       .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
   };
-  SDL_GPUSampler *sampler = SDL_CreateGPUSampler(device, &samplerCreateInfo);
+  SDL_GPUSampler *sampler = SDL_CreateGPUSampler(sdlContext.device, &samplerCreateInfo);
 
-  GraphicsPipelines pipelines = LoadPipelines(device, window);
+  GraphicsPipelines pipelines = LoadPipelines(sdlContext.device, sdlContext.window);
 
   bool continuePlay = true;
   while (continuePlay) {
@@ -139,12 +156,12 @@ int main() {
       }
     }
 
-    DrawSprite(device, window, pipelines.sprite, texture, sampler);
+    DrawSprite(sdlContext.device, sdlContext.window, pipelines.sprite, texture, sampler);
   }
 
-  SDL_ReleaseGPUTexture(device, texture);
-  SDL_ReleaseGPUSampler(device, sampler);
-  SDL_DestroyWindow(window);
+  SDL_ReleaseGPUTexture(sdlContext.device, texture);
+  SDL_ReleaseGPUSampler(sdlContext.device, sampler);
+  SDL_DestroyWindow(sdlContext.window);
   SDL_Quit();
   return 0;
 }
