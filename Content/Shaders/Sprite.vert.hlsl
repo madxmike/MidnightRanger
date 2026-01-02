@@ -1,3 +1,8 @@
+cbuffer UniformBlock : register(b0, space1)
+{
+    float4x4 transform : packoffset(c0);
+};
+
 struct VSInput {
     float3 position: TEXCOORD0;
     float3 color: COLOR0;
@@ -10,13 +15,11 @@ struct VSOutput {
     float4 color: COLOR0;
 };
 
-// uniform float4x4 transform;
-
 VSOutput Main(const VSInput input) {
 
     VSOutput output;
 
-    output.position = float4(input.position, 1.0f);
+    output.position = mul(transform, float4(input.position, 1.0f));
     output.color = float4(input.color, 1.0f);
     output.uv = input.uv;
 

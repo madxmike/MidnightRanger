@@ -9,6 +9,7 @@
 #include "SDL3/SDL_init.h"
 #include "SDL3/SDL_log.h"
 #include "SDL3/SDL_video.h"
+#include "glm/glm.hpp"
 #include <string>
 
 constexpr int WindowWidth = 800;
@@ -149,6 +150,8 @@ int main() {
   SDL_GPUSampler *sampler = SDL_CreateGPUSampler(sdlContext.device, &samplerCreateInfo);
 
   GraphicsPipelines pipelines = LoadPipelines(sdlContext.device, sdlContext.window);
+
+
 
   bool continuePlay = true;
   while (continuePlay) {

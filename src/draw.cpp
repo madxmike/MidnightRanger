@@ -1,4 +1,8 @@
+#include "SDL3/SDL_gpu.h"
 #include "SDL3/SDL_log.h"
+#include <glm/vec3.hpp>
+#include "glm/ext/matrix_float4x4.hpp"
+#include <glm/ext/matrix_transform.hpp>
 #include "pipelines.h"
 #include "draw.h"
 
@@ -145,6 +149,8 @@ void DrawSprite(SDL_GPUDevice *device, SDL_Window* window, SDL_GPUGraphicsPipeli
             .cycle = true,
         };
 
+        glm::mat4 transform = glm::mat4(1.0f);
+        transform = glm::scale(transform, glm::vec3(0.1, 0.1, 0.1));
         if (swapchainTexture != nullptr) {
             SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(commandBuffer, &colorTargetInfo, 1, nullptr);
             if (renderPass == nullptr) {
@@ -172,6 +178,7 @@ void DrawSprite(SDL_GPUDevice *device, SDL_Window* window, SDL_GPUGraphicsPipeli
                 .sampler = sampler,
             };
             SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
+            SDL_PushGPUVertexUniformData(commandBuffer, 0, &transform, sizeof(glm::mat4));
 
             SDL_DrawGPUIndexedPrimitives(renderPass, 6, 1, 0, 0, 0);
 
