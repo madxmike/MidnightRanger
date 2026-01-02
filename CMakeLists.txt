@@ -10,11 +10,13 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(fetch_sdl)
 include(fetch_sdl_image)
 include(fetch_sdl_shadercross)
+include(fetch_glm)
 
 add_executable(game src/main.cpp src/pipelines.cpp src/draw.cpp)
 target_link_libraries(game PUBLIC SDL3::SDL3)
 target_link_libraries(game PUBLIC SDL3_image::SDL3_image)
 target_link_libraries(game PUBLIC SDL3_shadercross::SDL3_shadercross)
+target_link_libraries(game PUBLIC glm::glm)
 target_include_directories(game PRIVATE include)
 
 add_custom_command(TARGET game POST_BUILD
