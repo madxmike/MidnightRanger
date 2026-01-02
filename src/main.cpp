@@ -61,7 +61,7 @@ SDL_Context initSDL() {
 
 SDL_GPUTexture* LoadAndCreateTexture(SDL_GPUDevice *device, std::string fileName) {
     const std::string basePath = SDL_GetBasePath();
-    const std::string filePath = basePath + "Content/Images/" + "test-sprite.png";
+    const std::string filePath = basePath + "Content/Images/" + fileName;
 
     SDL_Surface* surface = IMG_Load(filePath.c_str());
     if (surface == nullptr) {
