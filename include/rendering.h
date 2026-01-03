@@ -28,7 +28,7 @@ namespace rendering {
 
     void BeginFrame();
 
-    void DrawSprite(const Transform &transform, const Sprite &sprite);
+    void DrawSprite(const Sprite &sprite, const transform::Transform &transform);
 
     void DrawFrame();
 

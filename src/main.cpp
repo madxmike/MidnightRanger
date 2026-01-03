@@ -1,6 +1,7 @@
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_stdinc.h"
 #include "SDL3/SDL_timer.h"
+#include "glm/ext/vector_float3.hpp"
 #include "glm/gtc/quaternion.hpp"
 #include "rendering.h"
 #include "transform.h"
@@ -23,10 +24,8 @@ int main() {
     int frameCount = 0;
 
     uint startTime = SDL_GetTicks();
-    Transform transform = {
-        .x = 0.0f,
-        .y = 0.0f,
-        .z = 0.0f,
+    transform::Transform transform = {
+        .position = glm::vec3(0.0f, 0.0f, 0.0f),
         .rotation = glm::quat_cast(glm::mat4(1.0f)),
     };
     bool continuePlay = true;
@@ -41,9 +40,8 @@ int main() {
 
         rendering::BeginFrame();
 
-        for (int i = 0; i < 10000; i++) {
-
-            rendering::DrawSprite(transform, sprite);
+        for (int i = 0; i < 10; i++) {
+            rendering::DrawSprite(sprite, transform);
         }
 
         rendering::DrawFrame();

@@ -6,7 +6,6 @@
 #include "SDL3_shadercross/SDL_shadercross.h"
 #include "glm/fwd.hpp"
 #include "transform.h"
-#include <iostream>
 #include <sys/types.h>
 #include <vector>
 #include "rendering.h"
@@ -16,11 +15,11 @@ namespace rendering {
         template <typename T>
         struct QueuedDraw {
             T element;
-            Transform transform;
+            transform::Transform transform;
         };
 
         namespace sprite {
-            static const uint MaxSpriteCount = 10000;
+            static const uint MaxSpriteCount = 1024;
 
             struct Instance {
                 float width, height;
@@ -46,7 +45,6 @@ namespace rendering {
         struct Samplers {
             SDL_GPUSampler *nearest_clamped;
         };
-
 
         static const uint WindowWidth = 800;
         static const uint WindowHeight = 600;
@@ -334,14 +332,12 @@ namespace rendering {
         sprite::drawCount = 0;
     }
 
-    void DrawSprite(const Transform &transform, const Sprite &sprite) {
+    void DrawSprite(const Sprite &sprite, const transform::Transform &transform) {
         sprite::drawQueue[sprite::drawCount] = {
             .element = sprite,
             .transform = transform,
         };
         sprite::drawCount += 1;
-
-
     }
 
     void UploadSpriteData(SDL_GPUCommandBuffer *commandBuffer) {
@@ -351,14 +347,13 @@ namespace rendering {
             return;
         }
 
-
         for (int i = 0; i < sprite::drawCount; i++) {
             const QueuedDraw<Sprite> queuedDraw = sprite::drawQueue[i];
             data[i].width = 16.0f;
             data[i].height = 16.0f;
-            data[i].x = queuedDraw.transform.x;
-            data[i].y = queuedDraw.transform.y;
-            data[i].z = queuedDraw.transform.z;
+            data[i].x = queuedDraw.transform.position.x;
+            data[i].y = queuedDraw.transform.position.y;
+            data[i].z = queuedDraw.transform.position.z;
             data[i].rotation = 0.0; // TODO (Michael): Figure out how to determine this angle from the quaternion
             data[i].scale_x = queuedDraw.element.scale_x;
             data[i].scale_y = queuedDraw.element.scale_y;
@@ -431,7 +426,6 @@ namespace rendering {
 
         UploadSpriteData(uploadCommandBuffer);
         SDL_SubmitGPUCommandBuffer(uploadCommandBuffer);
-
 
         SDL_GPUCommandBuffer *renderCommandBuffer = SDL_AcquireGPUCommandBuffer(device);
         if (uploadCommandBuffer == nullptr) {
