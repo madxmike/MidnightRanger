@@ -10,7 +10,8 @@ namespace rendering {
 
     struct Sprite {
         TextureHandle texture_handle;
-        float scale_x, scale_y;
+        float scale_x;
+        float scale_y;
     };
 
     /**
@@ -25,5 +26,10 @@ namespace rendering {
 
     TextureHandle LoadAndRegisterTexture(std::string fileName);
 
+    void BeginFrame();
+
     void DrawSprite(const Transform &transform, const Sprite &sprite);
+
+    void DrawFrame();
+
 }

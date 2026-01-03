@@ -5,28 +5,51 @@
 #include "SDL3_image/SDL_image.h"
 #include "SDL3_shadercross/SDL_shadercross.h"
 #include "glm/fwd.hpp"
+#include "transform.h"
+#include <iostream>
+#include <sys/types.h>
 #include <vector>
 #include "rendering.h"
 
 namespace rendering {
     namespace {
-        struct SpriteVertex {
-            float x, y, z;
-            float r, g, b;
-            float u, v;
+        template <typename T>
+        struct QueuedDraw {
+            T element;
+            Transform transform;
+        };
+
+        namespace sprite {
+            static const uint MaxSpriteCount = 10000;
+
+            struct Instance {
+                float width, height;
+                float _padding_a, _padding_b;
+                float x, y, z;
+                float rotation;
+                float scale_x, scale_y;
+                float u, v;
+                float r, g, b, a;
+            };
+
+            // Note: Data is considered valid only for the current frame and up to drawCount
+            QueuedDraw<Sprite> drawQueue[MaxSpriteCount];
+            Uint32 drawCount;
+            SDL_GPUTransferBuffer *dataTransferBuffer;
+            SDL_GPUBuffer *dataBuffer;
         };
 
         struct GraphicsPipelines {
             SDL_GPUGraphicsPipeline* sprite;
         };
 
-
         struct Samplers {
             SDL_GPUSampler *nearest_clamped;
         };
 
-        constexpr int WindowWidth = 800;
-        constexpr int WindowHeight = 600;
+
+        static const uint WindowWidth = 800;
+        static const uint WindowHeight = 600;
 
         constexpr SDL_FColor CLEAR_COLOR{
             .r = 0.0,
@@ -42,11 +65,6 @@ namespace rendering {
 
         // Note: Append only to keep handles consistent for the lifetime of the game
         std::vector<SDL_GPUTexture *> textures;
-
-        // TODO (Michael): Use batching instead https://moonside.games/posts/sdl-gpu-sprite-batcher/
-        SDL_GPUBuffer *spriteVertexBuffer;
-        SDL_GPUBuffer *spriteIndexBuffer;
-        SDL_GPUTransferBuffer *spriteTransferBuffer;
     }
 
     SDL_GPUShader* LoadAndCompileShader(SDL_GPUDevice *device, const std::string shaderName) {
@@ -122,57 +140,27 @@ namespace rendering {
     }
 
     SDL_GPUGraphicsPipeline* LoadSpritePipeline(SDL_GPUDevice* device, SDL_GPUTextureFormat textureFormat) {
-        SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
-            {
-                .slot = 0,
-                .pitch = sizeof(SpriteVertex),
-                .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-                .instance_step_rate = 0
-            }
-        };
-
-        SDL_GPUVertexAttribute vertexAttributes[] = {
-            {
-                .location = 0,
-                .buffer_slot = 0,
-                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                .offset = 0,
-            },
-            {
-                .location = 1,
-                .buffer_slot = 0,
-                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-                .offset = sizeof(float) * 3,
-            },
-            {
-                .location = 2,
-                .buffer_slot = 0,
-                .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-                .offset = sizeof(float) * 6,
-            }
-        };
-
         SDL_GPUColorTargetDescription colorTargetDescription = {
-            .format = textureFormat
+            .format = textureFormat,
+            .blend_state = {
+                .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+                .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+                .color_blend_op = SDL_GPU_BLENDOP_ADD,
+                .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+                .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+                .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+                .enable_blend = true,
+            }
         };
 
         SDL_GPUGraphicsPipelineCreateInfo pipelineCreateInfo = {
             .vertex_shader = LoadAndCompileShader(device, "Sprite.vert"),
             .fragment_shader = LoadAndCompileShader(device, "Sprite.frag"),
-            .vertex_input_state =
-                {
-                    .vertex_buffer_descriptions = vertexBufferDescriptions,
-                    .num_vertex_buffers = 1,
-                    .vertex_attributes = vertexAttributes,
-                    .num_vertex_attributes = 3,
-                },
             .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
-            .target_info =
-                {
+            .target_info = {
                     .color_target_descriptions = &colorTargetDescription,
                     .num_color_targets = 1,
-                },
-
+            },
         };
 
         SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineCreateInfo);
@@ -232,6 +220,24 @@ namespace rendering {
         pipelines = {
             .sprite = LoadSpritePipeline(device, textureFormat),
         };
+
+        SDL_GPUTransferBufferCreateInfo spriteDataTransferBufferCreateInfo = {
+            .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+            .size = sprite::MaxSpriteCount * sizeof(sprite::Instance),
+        };
+
+        sprite::dataTransferBuffer = SDL_CreateGPUTransferBuffer(device, &spriteDataTransferBufferCreateInfo);
+
+
+        SDL_GPUBufferCreateInfo spriteDataBufferCreateInfo = {
+            .usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
+            .size = sprite::MaxSpriteCount * sizeof(sprite::Instance)
+        };
+
+        sprite::dataBuffer = SDL_CreateGPUBuffer(device, &spriteDataBufferCreateInfo);
+        SDL_SetGPUBufferName(device, sprite::dataBuffer, "Sprite Data Buffer");
+        SDL_GPUSwapchainComposition swapchainComposition = SDL_GPU_SWAPCHAINCOMPOSITION_SDR;
+        SDL_SetGPUSwapchainParameters(device, window, swapchainComposition, SDL_GPU_PRESENTMODE_IMMEDIATE);
     }
 
     void ReleaseResources() {
@@ -239,6 +245,10 @@ namespace rendering {
             SDL_ReleaseGPUTexture(device, texture);
         }
 
+        SDL_ReleaseGPUTransferBuffer(device, sprite::dataTransferBuffer);
+        SDL_ReleaseGPUBuffer(device, sprite::dataBuffer);
+
+        SDL_ReleaseGPUGraphicsPipeline(device, pipelines.sprite);
         SDL_ReleaseGPUSampler(device, samplers.nearest_clamped);
         SDL_DestroyGPUDevice(device);
         SDL_DestroyWindow(window);
@@ -283,6 +293,8 @@ namespace rendering {
         };
 
         SDL_GPUTexture *texture = SDL_CreateGPUTexture(device, &textureCreateInfo);
+        SDL_SetGPUTextureName(device, texture, fileName.c_str());
+
         SDL_GPUCommandBuffer *commandBuffer = SDL_AcquireGPUCommandBuffer(device);
         if (commandBuffer == nullptr) {
             SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not acquire command buffer: %s\n", SDL_GetError());
@@ -318,175 +330,123 @@ namespace rendering {
         return textures.size() - 1;
     }
 
-    void DrawSprite(const Transform &transform, const Sprite &sprite) {
-        const Uint32 vertexBufferSize = sizeof(SpriteVertex) * 4; // Sprites are always quads
-        const Uint32 indexBufferSize = sizeof(Uint16) * 6;
-        if (spriteVertexBuffer == nullptr) {
-            SDL_GPUBufferCreateInfo bufferCreateInfo = {
-                .usage = SDL_GPU_BUFFERUSAGE_VERTEX |
-                         SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
-                .size = vertexBufferSize,
-                .props = 0,
-            };
-            spriteVertexBuffer = SDL_CreateGPUBuffer(device, &bufferCreateInfo);
-            if (spriteVertexBuffer == nullptr) {
-              SDL_LogError(SDL_LOG_CATEGORY_ERROR,
-                           "Could not acquire vertex buffer: %s\n", SDL_GetError());
-              return;
-            }
-        }
-
-        if (spriteIndexBuffer == nullptr) {
-            SDL_GPUBufferCreateInfo bufferCreateInfo = {
-                .usage = SDL_GPU_BUFFERUSAGE_INDEX |
-                         SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
-                .size = indexBufferSize,
-                .props = 0,
-            };
-            spriteIndexBuffer = SDL_CreateGPUBuffer(device, &bufferCreateInfo);
-            if (spriteIndexBuffer == nullptr) {
-              SDL_LogError(SDL_LOG_CATEGORY_ERROR,
-                           "Could not acquire index buffer: %s\n", SDL_GetError());
-              return;
-            }
-        }
-
-        if (spriteTransferBuffer == nullptr) {
-            SDL_GPUTransferBufferCreateInfo transferBufferCreateInfo = {
-                .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-                .size = vertexBufferSize + indexBufferSize,
-            };
-
-            spriteTransferBuffer = SDL_CreateGPUTransferBuffer(device, &transferBufferCreateInfo);
-        }
-
-
-        // Map vertex data
-        {
-            void *mappedData = SDL_MapGPUTransferBuffer(device, spriteTransferBuffer, true);
-            if (mappedData == nullptr) {
-                SDL_LogError(SDL_LOG_CATEGORY_ERROR,
-                        "Could not acquire sprite vertex buffer: %s\n",
-                        SDL_GetError());
-                return;
-            }
-
-            SpriteVertex *vertexData = (SpriteVertex*) mappedData;
-            vertexData[0] = { .x = -1.0f, .y = 1.0f, .z = 0.f, .r = 1.0f, .g = 1.0f, .b = 1.0f, .u = 0.0f, .v = 0.0f };
-            vertexData[1] = { .x = 1.0f, .y = 1.0f, .z = 0.f, .r = 1.0f, .g = 1.0f, .b = 1.0f, .u = 1.0f, .v = 0.0f };
-            vertexData[2] = { .x = 1.0f, .y = -1.0f, .z = 0.f, .r = 1.0f, .g = 1.0f, .b = 1.0f, .u = 1.0f, .v = 1.0f };
-            vertexData[3] = { .x = -1.0f, .y = -1.0f, .z = 0.f, .r = 1.0f, .g = 1.0f, .b = 1.0f, .u = 0.0f, .v = 1.0f };
-
-            Uint16 *indexData = (Uint16*) &vertexData[4];
-            indexData[0] = 0;
-            indexData[1] = 1;
-            indexData[2] = 2;
-            indexData[3] = 0;
-            indexData[4] = 2;
-            indexData[5] = 3;
-
-            SDL_UnmapGPUTransferBuffer(device, spriteTransferBuffer);
-        }
-
-        // Vertex data copy pass
-        {
-            SDL_GPUCommandBuffer *commandBuffer = SDL_AcquireGPUCommandBuffer(device);
-            if (commandBuffer == nullptr) {
-                SDL_LogError(SDL_LOG_CATEGORY_ERROR,
-                            "Could not acquire copy pass command buffer: %s\n", SDL_GetError());
-                return;
-            }
-            SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(commandBuffer);
-
-            SDL_GPUTransferBufferLocation vertexSrc = {
-                .transfer_buffer = spriteTransferBuffer,
-                .offset = 0,
-            };
-            SDL_GPUBufferRegion vertexDst = {
-                .buffer = spriteVertexBuffer,
-                .offset = 0,
-                .size = vertexBufferSize
-            };
-            SDL_UploadToGPUBuffer(copyPass, &vertexSrc, &vertexDst, true);
-
-            SDL_GPUTransferBufferLocation indexSrc = {
-                .transfer_buffer = spriteTransferBuffer,
-                .offset = vertexBufferSize,
-            };
-            SDL_GPUBufferRegion indexDst = {
-                .buffer = spriteIndexBuffer,
-                .offset = 0,
-                .size = indexBufferSize,
-            };
-            SDL_UploadToGPUBuffer(copyPass, &indexSrc, &indexDst, true);
-
-            SDL_EndGPUCopyPass(copyPass);
-            SDL_SubmitGPUCommandBuffer(commandBuffer);
-        }
-
-        // Render pass
-        {
-            SDL_GPUCommandBuffer *commandBuffer = SDL_AcquireGPUCommandBuffer(device);
-            if (commandBuffer == nullptr) {
-              SDL_LogError(SDL_LOG_CATEGORY_ERROR,
-                           "Could not acquire render pass command buffer: %s\n", SDL_GetError());
-              return;
-            }
-
-            SDL_GPUTexture *swapchainTexture;
-            if (!SDL_WaitAndAcquireGPUSwapchainTexture(
-                    commandBuffer, window, &swapchainTexture, nullptr, nullptr)) {
-              SDL_LogError(SDL_LOG_CATEGORY_ERROR,
-                           "Could not acquire swapchain texture: %s\n", SDL_GetError());
-              return;
-            }
-
-            SDL_GPUColorTargetInfo colorTargetInfo = {
-                .texture = swapchainTexture,
-                .mip_level = 0,
-                .clear_color = CLEAR_COLOR,
-                .load_op = SDL_GPU_LOADOP_CLEAR,
-                .store_op = SDL_GPU_STOREOP_STORE,
-                .cycle = true,
-            };
-
-            glm::mat4 transform = glm::mat4(1.0f);
-            transform = glm::scale(transform, glm::vec3(sprite.scale_x, sprite.scale_y, 1.0f));
-            if (swapchainTexture != nullptr) {
-                SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(commandBuffer, &colorTargetInfo, 1, nullptr);
-                if (renderPass == nullptr) {
-                    SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not bein render pass: %s\n",
-                                SDL_GetError());
-                    return;
-                }
-
-                SDL_BindGPUGraphicsPipeline(renderPass, pipelines.sprite);
-
-                SDL_GPUBufferBinding vertexBufferBinding = {
-                    .buffer = spriteVertexBuffer,
-                    .offset = 0,
-                };
-                SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
-
-                SDL_GPUBufferBinding indexBufferBinding = {
-                    .buffer = spriteIndexBuffer,
-                    .offset = 0,
-                };
-                SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
-
-                SDL_GPUTextureSamplerBinding textureSamplerBinding = {
-                    .texture = textures.at(sprite.texture_handle),
-                    .sampler = samplers.nearest_clamped,
-                };
-                SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
-                SDL_PushGPUVertexUniformData(commandBuffer, 0, &transform, sizeof(glm::mat4));
-
-                SDL_DrawGPUIndexedPrimitives(renderPass, 6, 1, 0, 0, 0);
-
-                SDL_EndGPURenderPass(renderPass);
-            }
-            SDL_SubmitGPUCommandBuffer(commandBuffer);
-        }
+    void BeginFrame() {
+        sprite::drawCount = 0;
     }
 
+    void DrawSprite(const Transform &transform, const Sprite &sprite) {
+        sprite::drawQueue[sprite::drawCount] = {
+            .element = sprite,
+            .transform = transform,
+        };
+        sprite::drawCount += 1;
+
+
+    }
+
+    void UploadSpriteData(SDL_GPUCommandBuffer *commandBuffer) {
+        sprite::Instance *data = (sprite::Instance *) SDL_MapGPUTransferBuffer(device, sprite::dataTransferBuffer, true);
+        if (data == nullptr) {
+            SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not acquire sprite vertex buffer: %s\n", SDL_GetError());
+            return;
+        }
+
+
+        for (int i = 0; i < sprite::drawCount; i++) {
+            const QueuedDraw<Sprite> queuedDraw = sprite::drawQueue[i];
+            data[i].width = 16.0f;
+            data[i].height = 16.0f;
+            data[i].x = queuedDraw.transform.x;
+            data[i].y = queuedDraw.transform.y;
+            data[i].z = queuedDraw.transform.z;
+            data[i].rotation = 0.0; // TODO (Michael): Figure out how to determine this angle from the quaternion
+            data[i].scale_x = queuedDraw.element.scale_x;
+            data[i].scale_y = queuedDraw.element.scale_y;
+            data[i].u = 0.0f;
+            data[i].v = 0.0f;
+            data[i].r = 1.0f;
+            data[i].b = 1.0f;
+            data[i].g = 1.0f;
+            data[i].a = 1.0f;
+        }
+
+        SDL_UnmapGPUTransferBuffer(device, sprite::dataTransferBuffer);
+
+        SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(commandBuffer);
+
+        SDL_GPUTransferBufferLocation source = {
+            .transfer_buffer = sprite::dataTransferBuffer,
+            .offset = 0
+        };
+
+        SDL_GPUBufferRegion destination = {
+            .buffer = sprite::dataBuffer,
+            .offset = 0,
+            .size = static_cast<Uint32>(sprite::drawCount * sizeof(sprite::Instance))
+        };
+
+        SDL_UploadToGPUBuffer(copyPass, &source, &destination, true);
+
+        SDL_EndGPUCopyPass(copyPass);
+    }
+
+    void DrawSprites(SDL_GPUCommandBuffer *commandBuffer, SDL_GPUTexture *swapchainTexture) {
+
+        SDL_GPUColorTargetInfo colorTargetInfo = {
+            .texture = swapchainTexture,
+            .mip_level = 0,
+            .clear_color = CLEAR_COLOR,
+            .load_op = SDL_GPU_LOADOP_CLEAR,
+            .store_op = SDL_GPU_STOREOP_STORE,
+            .cycle = false,
+        };
+        SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(commandBuffer, &colorTargetInfo, 1, nullptr);
+        if (renderPass == nullptr) {
+            SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not begin render pass: %s\n",SDL_GetError());
+            return;
+        }
+        glm::mat4 transform = glm::mat4(1.0f);
+
+        SDL_BindGPUGraphicsPipeline(renderPass, pipelines.sprite);
+        SDL_BindGPUVertexStorageBuffers(renderPass, 0, &sprite::dataBuffer, 1);
+
+        SDL_GPUTextureSamplerBinding textureSamplerBinding = {
+            // TODO (Michael): I'm not sure how best to get this information, may just leave this as is until I can implement a sprite atlas
+            .texture = textures.at(0),
+            .sampler = samplers.nearest_clamped,
+        };
+        SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
+        SDL_PushGPUVertexUniformData(commandBuffer, 0, &transform, sizeof(glm::mat4));
+
+        SDL_DrawGPUPrimitives(renderPass, sprite::drawCount * 6, 1, 0, 0);
+        SDL_EndGPURenderPass(renderPass);
+    }
+
+    void DrawFrame() {
+        SDL_GPUCommandBuffer *uploadCommandBuffer = SDL_AcquireGPUCommandBuffer(device);
+        if (uploadCommandBuffer == nullptr) {
+          SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not acquire upload command buffer: %s\n", SDL_GetError());
+          return;
+        }
+
+        UploadSpriteData(uploadCommandBuffer);
+        SDL_SubmitGPUCommandBuffer(uploadCommandBuffer);
+
+
+        SDL_GPUCommandBuffer *renderCommandBuffer = SDL_AcquireGPUCommandBuffer(device);
+        if (uploadCommandBuffer == nullptr) {
+          SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not acquire render command buffer: %s\n", SDL_GetError());
+          return;
+        }
+
+        SDL_GPUTexture *swapchainTexture;
+        if (!SDL_WaitAndAcquireGPUSwapchainTexture(renderCommandBuffer, window, &swapchainTexture, nullptr, nullptr)) {
+          SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not acquire swapchain texture: %s\n", SDL_GetError());
+          return;
+        }
+
+        DrawSprites(renderCommandBuffer, swapchainTexture);
+
+        SDL_SubmitGPUCommandBuffer(renderCommandBuffer);
+    }
 }
