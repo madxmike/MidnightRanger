@@ -5,6 +5,7 @@
 #include "glm/gtc/quaternion.hpp"
 #include "rendering.h"
 #include "transform.h"
+#include "camera.h"
 #include <iostream>
 
 int main() {
@@ -13,13 +14,13 @@ int main() {
 
     rendering::Sprite sprite = {
         .texture_handle = rendering::LoadAndRegisterTexture("test_sprite.png"),
-        .scale_x = 0.5f,
-        .scale_y = 0.5f,
+        .scale_x = 32.0f,
+        .scale_y = 32.0f,
     };
-
 
     SDL_srand(0);
 
+    camera::Camera camera;
 
     int frameCount = 0;
 
@@ -38,13 +39,15 @@ int main() {
             }
         }
 
+        camera.Move(-0.01f, 0.0f);
+
         rendering::BeginFrame();
 
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 1; i++) {
             rendering::DrawSprite(sprite, transform);
         }
 
-        rendering::DrawFrame();
+        rendering::DrawFrame(camera);
         frameCount++;
     }
     uint timeElasped = SDL_GetTicks() - startTime;

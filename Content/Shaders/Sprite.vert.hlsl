@@ -60,7 +60,7 @@ VSOutput Main(uint id: SV_VertexID) {
     };
 
     VSOutput output;
-    output.Position = float4(position3D, 1.0f);
+    output.Position = mul(ViewProjectionMatrix, float4(position3D, 1.0f));
     output.UV = uvCoordinates[vertexIndex];
     output.Color = sprite.Color;
 

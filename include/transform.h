@@ -20,15 +20,15 @@ namespace transform {
         glm::vec3 position;
         glm::quat rotation;
 
-        glm::vec3 Up() {
+        glm::vec3 Up() const {
             return rotation * VectorUp;
         }
 
-        glm::vec3 Right() {
+        glm::vec3 Right() const {
             return rotation * VectorForward;
         }
 
-        glm::vec3 Forward() {
+        glm::vec3 Forward() const {
             return rotation * VectorForward;
         }
 
@@ -45,6 +45,16 @@ namespace transform {
             const float radians = glm::radians(degrees);
 
             rotation = glm::rotate(rotation, radians, axisVector);
+        }
+
+        void Translate(const float x, const float y) {
+            this->Translate(x, y, 0.0);
+        }
+
+        void Translate(const float x, const float y, const float z) {
+            this->position.x += x;
+            this->position.y += y;
+            this->position.z += z;
         }
     };
 

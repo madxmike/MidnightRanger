@@ -4,7 +4,10 @@
 #include "SDL3/SDL_video.h"
 #include "SDL3_image/SDL_image.h"
 #include "SDL3_shadercross/SDL_shadercross.h"
+#include "glm/ext/matrix_clip_space.hpp"
+#include "glm/ext/matrix_transform.hpp"
 #include "glm/fwd.hpp"
+#include "glm/gtc/quaternion.hpp"
 #include "transform.h"
 #include <sys/types.h>
 #include <vector>
@@ -48,6 +51,8 @@ namespace rendering {
 
         static const uint WindowWidth = 800;
         static const uint WindowHeight = 600;
+        static const uint Fov = 90;
+
 
         constexpr SDL_FColor CLEAR_COLOR{
             .r = 0.0,
@@ -56,10 +61,13 @@ namespace rendering {
             .a = 1.0,
         };
 
+
         SDL_GPUDevice *device;
         SDL_Window *window;
         Samplers samplers;
         GraphicsPipelines pipelines;
+        glm::mat4 projectionMatrix;
+
 
         // Note: Append only to keep handles consistent for the lifetime of the game
         std::vector<SDL_GPUTexture *> textures;
@@ -218,6 +226,8 @@ namespace rendering {
         pipelines = {
             .sprite = LoadSpritePipeline(device, textureFormat),
         };
+
+        projectionMatrix = glm::orthoLH<float>(0, WindowWidth, WindowHeight, 0, 0, -1.0);
 
         SDL_GPUTransferBufferCreateInfo spriteDataTransferBufferCreateInfo = {
             .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
@@ -385,7 +395,7 @@ namespace rendering {
         SDL_EndGPUCopyPass(copyPass);
     }
 
-    void DrawSprites(SDL_GPUCommandBuffer *commandBuffer, SDL_GPUTexture *swapchainTexture) {
+    void DrawSprites(SDL_GPUCommandBuffer *commandBuffer, SDL_GPUTexture *swapchainTexture, const glm::mat4 &viewMatrix) {
 
         SDL_GPUColorTargetInfo colorTargetInfo = {
             .texture = swapchainTexture,
@@ -400,7 +410,7 @@ namespace rendering {
             SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not begin render pass: %s\n",SDL_GetError());
             return;
         }
-        glm::mat4 transform = glm::mat4(1.0f);
+        glm::mat4 viewProjectionMatrix = projectionMatrix * viewMatrix;
 
         SDL_BindGPUGraphicsPipeline(renderPass, pipelines.sprite);
         SDL_BindGPUVertexStorageBuffers(renderPass, 0, &sprite::dataBuffer, 1);
@@ -411,13 +421,13 @@ namespace rendering {
             .sampler = samplers.nearest_clamped,
         };
         SDL_BindGPUFragmentSamplers(renderPass, 0, &textureSamplerBinding, 1);
-        SDL_PushGPUVertexUniformData(commandBuffer, 0, &transform, sizeof(glm::mat4));
+        SDL_PushGPUVertexUniformData(commandBuffer, 0, &viewProjectionMatrix, sizeof(glm::mat4));
 
         SDL_DrawGPUPrimitives(renderPass, sprite::drawCount * 6, 1, 0, 0);
         SDL_EndGPURenderPass(renderPass);
     }
 
-    void DrawFrame() {
+    void DrawFrame(const camera::Camera& camera) {
         SDL_GPUCommandBuffer *uploadCommandBuffer = SDL_AcquireGPUCommandBuffer(device);
         if (uploadCommandBuffer == nullptr) {
           SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not acquire upload command buffer: %s\n", SDL_GetError());
@@ -439,7 +449,8 @@ namespace rendering {
           return;
         }
 
-        DrawSprites(renderCommandBuffer, swapchainTexture);
+        glm::mat4 viewMatrix = camera.View();
+        DrawSprites(renderCommandBuffer, swapchainTexture, viewMatrix);
 
         SDL_SubmitGPUCommandBuffer(renderCommandBuffer);
     }

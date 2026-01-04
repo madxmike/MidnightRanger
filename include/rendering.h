@@ -1,6 +1,7 @@
 #pragma once
 
 #include "transform.h"
+#include "camera.h"
 #include <string>
 
 namespace rendering {
@@ -30,6 +31,6 @@ namespace rendering {
 
     void DrawSprite(const Sprite &sprite, const transform::Transform &transform);
 
-    void DrawFrame();
+    void DrawFrame(const camera::Camera &camera);
 
 }
