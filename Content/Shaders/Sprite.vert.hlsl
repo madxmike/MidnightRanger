@@ -1,22 +1,28 @@
-static const uint triangleIndices[6] = {0, 1, 2, 3, 2, 1};
-static const float2 vertexPosition[4] = {
+static const uint triangleIndices[6] = {0, 1, 2, 3, 0, 2};
+static const float3 vertexPositions[4] = {
+    {-1.0f, -1.0f, 0.0f},
+    {-1.0f, 1.0f, 0.0f},
+    {1.0f, 1.0f, 0.0f},
+    {1.0, -1.0f, 0.0f}
+};
+
+static const float2 uvCoordinates[4] = {
+    {0.0f, 1.0f},
     {0.0f, 0.0f},
     {1.0f, 0.0f},
-    {0.0f, 1.0f},
     {1.0f, 1.0f}
 };
 
-
 // TODO (Michael): Utilize an atlas texture for sprites. This will require the UV, width, and height of the sprite's texture on the atlas to be passed. For now, its not needed.
 struct SpriteData {
+    float4x4 Transform;
     float Width;
     float Height;
-    float2 _padding;
-    float3 Position;
-    float Rotation;
-    float2 Scale;
+    float Scale_x;
+    float Scale_y;
     float U;
     float V;
+    float2 _padding;
     float4 Color;
 };
 
@@ -39,31 +45,15 @@ VSOutput Main(uint id: SV_VertexID) {
     SpriteData sprite = DataBuffer[spriteIndex];
 
     uint vertexIndex = triangleIndices[id % 6];
-    float2 position2D = vertexPosition[vertexIndex];
-    position2D *= sprite.Scale;
+    float3 vertexPosition = vertexPositions[vertexIndex];
+    vertexPosition.x *= sprite.Scale_x;
+    vertexPosition.y *= sprite.Scale_y;
 
-    float c = cos(sprite.Rotation);
-    float s = sin(sprite.Rotation);
-    float2x2 rotation = {
-        c, s,
-        -s, c
-    };
-    position2D = mul(position2D, rotation);
-
-    float3 position3D = float3(position2D + sprite.Position.xy, sprite.Position.z);
-
-    float2 uvCoordinates[4] = {
-        {0.0f, 0.0f},
-        {1.0f, 0.0f},
-        {0.0f, 1.0f},
-        {1.0f, 1.0f}
-    };
-
+    float4x4 MVP = mul(ViewProjectionMatrix, sprite.Transform);
     VSOutput output;
-    output.Position = mul(ViewProjectionMatrix, float4(position3D, 1.0f));
+    output.Position = mul(MVP, float4(vertexPosition, 1.0f));
     output.UV = uvCoordinates[vertexIndex];
     output.Color = sprite.Color;
-
 
     return output;
 }

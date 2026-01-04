@@ -1,14 +1,16 @@
 #include "camera.h"
+#include "glm/ext/matrix_float4x4.hpp"
 #include "glm/ext/matrix_transform.hpp"
 #include "glm/ext/vector_float3.hpp"
 #include "glm/gtc/quaternion.hpp"
+#include "glm/matrix.hpp"
 #include "transform.h"
 
 namespace camera {
     Camera::Camera() {
         transform = {
             .position = glm::vec3(0.0f, 0.0f, 0.0f),
-            .rotation = glm::quatLookAt(glm::vec3(0.0, 0.0f, -1.0f), transform::VectorUp)
+            .rotation = glm::identity<glm::quat>(),
         };
     }
 
@@ -17,7 +19,10 @@ namespace camera {
     }
 
     const glm::mat4 Camera::View() const {
-        return glm::lookAt(this->transform.position, this->transform.position + this->transform.Forward(), this->transform.Up());
+        glm::mat4 Translation = glm::translate(glm::mat4(1.0f), -this->transform.position);
+        glm::mat4 Rotation = glm::mat4_cast(this->transform.rotation);
+
+        return Rotation * Translation;
     }
 
     const transform::Transform Camera::GetTransform() const {

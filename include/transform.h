@@ -25,7 +25,7 @@ namespace transform {
         }
 
         glm::vec3 Right() const {
-            return rotation * VectorForward;
+            return rotation * VectorRight;
         }
 
         glm::vec3 Forward() const {

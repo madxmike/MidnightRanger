@@ -1,3 +1,4 @@
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "SDL3/SDL_gpu.h"
 #include "SDL3/SDL_init.h"
 #include "SDL3/SDL_log.h"
@@ -5,10 +6,13 @@
 #include "SDL3_image/SDL_image.h"
 #include "SDL3_shadercross/SDL_shadercross.h"
 #include "glm/ext/matrix_clip_space.hpp"
+#include "glm/ext/matrix_float4x4.hpp"
 #include "glm/ext/matrix_transform.hpp"
 #include "glm/fwd.hpp"
 #include "glm/gtc/quaternion.hpp"
+#include "glm/trigonometric.hpp"
 #include "transform.h"
+#include <iostream>
 #include <sys/types.h>
 #include <vector>
 #include "rendering.h"
@@ -25,12 +29,11 @@ namespace rendering {
             static const uint MaxSpriteCount = 1024;
 
             struct Instance {
+                glm::mat4 transform;
                 float width, height;
-                float _padding_a, _padding_b;
-                float x, y, z;
-                float rotation;
                 float scale_x, scale_y;
                 float u, v;
+                float _padding[2];
                 float r, g, b, a;
             };
 
@@ -64,8 +67,11 @@ namespace rendering {
 
         SDL_GPUDevice *device;
         SDL_Window *window;
+        SDL_GPUTexture *depthTexture;
         Samplers samplers;
         GraphicsPipelines pipelines;
+
+
         glm::mat4 projectionMatrix;
 
 
@@ -159,13 +165,24 @@ namespace rendering {
             }
         };
 
+        SDL_GPUDepthStencilState depthStencilState = {
+            .compare_op = SDL_GPU_COMPAREOP_LESS,
+            .write_mask = 0xFF,
+            .enable_depth_test = true,
+            .enable_depth_write = true,
+            .enable_stencil_test = false,
+        };
+
         SDL_GPUGraphicsPipelineCreateInfo pipelineCreateInfo = {
             .vertex_shader = LoadAndCompileShader(device, "Sprite.vert"),
             .fragment_shader = LoadAndCompileShader(device, "Sprite.frag"),
             .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+            .depth_stencil_state = depthStencilState,
             .target_info = {
                     .color_target_descriptions = &colorTargetDescription,
                     .num_color_targets = 1,
+                    .depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM,
+                    .has_depth_stencil_target = true,
             },
         };
 
@@ -227,7 +244,18 @@ namespace rendering {
             .sprite = LoadSpritePipeline(device, textureFormat),
         };
 
-        projectionMatrix = glm::orthoLH<float>(0, WindowWidth, WindowHeight, 0, 0, -1.0);
+        SDL_GPUTextureCreateInfo depthTextureCreateInfo = {
+            .type = SDL_GPU_TEXTURETYPE_2D,
+            .format = SDL_GPU_TEXTUREFORMAT_D16_UNORM,
+            .usage = SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+            .width = WindowWidth,
+            .height = WindowHeight,
+            .layer_count_or_depth = 1,
+            .num_levels = 1,
+            .sample_count = SDL_GPU_SAMPLECOUNT_1,
+        };
+        depthTexture = SDL_CreateGPUTexture(device, &depthTextureCreateInfo);
+        projectionMatrix = glm::perspectiveFovLH<float>(Fov, WindowWidth, WindowHeight, 0.01f, 1000.0f);
 
         SDL_GPUTransferBufferCreateInfo spriteDataTransferBufferCreateInfo = {
             .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
@@ -252,6 +280,7 @@ namespace rendering {
         for (const auto& texture : textures) {
             SDL_ReleaseGPUTexture(device, texture);
         }
+        SDL_ReleaseGPUTexture(device, depthTexture);
 
         SDL_ReleaseGPUTransferBuffer(device, sprite::dataTransferBuffer);
         SDL_ReleaseGPUBuffer(device, sprite::dataBuffer);
@@ -359,12 +388,12 @@ namespace rendering {
 
         for (int i = 0; i < sprite::drawCount; i++) {
             const QueuedDraw<Sprite> queuedDraw = sprite::drawQueue[i];
+            glm::mat4 transform = glm::identity<glm::mat4>();
+            transform = glm::translate(transform, queuedDraw.transform.position);
+            data[i].transform = transform;
+
             data[i].width = 16.0f;
             data[i].height = 16.0f;
-            data[i].x = queuedDraw.transform.position.x;
-            data[i].y = queuedDraw.transform.position.y;
-            data[i].z = queuedDraw.transform.position.z;
-            data[i].rotation = 0.0; // TODO (Michael): Figure out how to determine this angle from the quaternion
             data[i].scale_x = queuedDraw.element.scale_x;
             data[i].scale_y = queuedDraw.element.scale_y;
             data[i].u = 0.0f;
@@ -405,7 +434,19 @@ namespace rendering {
             .store_op = SDL_GPU_STOREOP_STORE,
             .cycle = false,
         };
-        SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(commandBuffer, &colorTargetInfo, 1, nullptr);
+
+        SDL_GPUDepthStencilTargetInfo depthStencilTargetInfo = {
+            .texture = depthTexture,
+            .clear_depth = 1,
+            .load_op = SDL_GPU_LOADOP_CLEAR,
+            .store_op = SDL_GPU_STOREOP_STORE,
+            .stencil_load_op = SDL_GPU_LOADOP_CLEAR,
+            .stencil_store_op = SDL_GPU_STOREOP_STORE,
+            .cycle = false,
+            .clear_stencil = 0,
+        };
+
+        SDL_GPURenderPass *renderPass = SDL_BeginGPURenderPass(commandBuffer, &colorTargetInfo, 1, &depthStencilTargetInfo);
         if (renderPass == nullptr) {
             SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not begin render pass: %s\n",SDL_GetError());
             return;
@@ -425,6 +466,7 @@ namespace rendering {
 
         SDL_DrawGPUPrimitives(renderPass, sprite::drawCount * 6, 1, 0, 0);
         SDL_EndGPURenderPass(renderPass);
+
     }
 
     void DrawFrame(const camera::Camera& camera) {

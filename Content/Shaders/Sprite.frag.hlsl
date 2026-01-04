@@ -8,5 +8,8 @@ struct PSInput {
 
 float4 Main(const PSInput input): SV_Target0 {
     float4 sample = Texture.Sample(Sampler, input.UV);
+    if (sample.a <= 0.5f) {
+        discard;
+    }
     return sample * input.Color;
 }

@@ -1,6 +1,7 @@
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_stdinc.h"
 #include "SDL3/SDL_timer.h"
+#include "glm/ext/matrix_transform.hpp"
 #include "glm/ext/vector_float3.hpp"
 #include "glm/gtc/quaternion.hpp"
 #include "rendering.h"
@@ -25,10 +26,7 @@ int main() {
     int frameCount = 0;
 
     uint startTime = SDL_GetTicks();
-    transform::Transform transform = {
-        .position = glm::vec3(0.0f, 0.0f, 0.0f),
-        .rotation = glm::quat_cast(glm::mat4(1.0f)),
-    };
+
     bool continuePlay = true;
     while (continuePlay) {
         SDL_Event event;
@@ -39,12 +37,23 @@ int main() {
             }
         }
 
-        camera.Move(-0.01f, 0.0f);
+        // camera.Move(-0.01f, 0.0f);
 
         rendering::BeginFrame();
+        float distance = 25.0f;
 
-        for (int i = 0; i < 1; i++) {
+        for (int i = 0; i < 10; i++) {
+            transform::Transform transform = {
+                .position = glm::vec3(
+                    i * 100.f,
+                    0.0f,
+                    distance
+                ),
+
+                .rotation = glm::quat_cast(glm::identity<glm::mat4>()),
+            };
             rendering::DrawSprite(sprite, transform);
+            distance += 75.0f;
         }
 
         rendering::DrawFrame(camera);
